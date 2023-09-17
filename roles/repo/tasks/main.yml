@@ -46,19 +46,10 @@
     - name: render repo definition file
       tags: repo_file
       copy:
-        dest: "{{ repo_home }}/{{ repo_name }}.repo"
+        dest: "{{ repo_home }}/sources.list"
         mode: 0755
         content: |
-          [{{ repo_name }}]
-          name=Pigsty Local Yum Repo {{ repo_name }}
-          baseurl={{ repo_endpoint | replace('${admin_ip}', admin_ip ) }}/{{ repo_name }}
-          skip_if_unavailable = 1
-          enabled = 1
-          priority = 1
-          gpgcheck = 0
-          {% if os_version|int >= 8 %}
-          module_hotfixes=1
-          {% endif %}
+          deb [trusted=yes] {{ repo_endpoint | replace('${admin_ip}', admin_ip ) }}/{{ repo_name }} ./
 
 #--------------------------------------------------------------#
 # 1. Check whether repo exists?                     [repo_check]
@@ -82,31 +73,16 @@
   tags: repo_prepare
   when: repo_exists|bool and repo_enabled|bool
   shell: |
-    mkdir -p /etc/yum.repos.d/backup/
-    {% if repo_remove|bool %}
-    mv -f /etc/yum.repos.d/*.repo /etc/yum.repos.d/backup/ || /bin/true
-    yum clean all;
-    {% endif %}
-    cat > /etc/yum.repos.d/{{ repo_name }}-local.repo <<-'EOF'
-    [{{ repo_name }}-local]
-    name={{ repo_name }}-local $releasever - $basearch
-    baseurl=file://{{ repo_home }}/{{ repo_name }}/
-    enabled=1
-    gpgcheck=0
-    {% if os_version|int >= 8 %}
-    module_hotfixes=1
-    {% endif %}
-    EOF
-    yum makecache;
-    yum install -y wget nginx sshpass createrepo_c;
-    yum install -y yum-utils || /bin/true
+    cp {{ repo_home }}/sources.list /etc/apt/sources.list;
+    apt-get update;
+    apt-get install -y wget nginx sshpass dpkg-dev;
     /bin/true;
 
 
 #--------------------------------------------------------------#
 # 3. Build repo (IF REPO NOT EXISTS)                [repo_build]
 #--------------------------------------------------------------#
-# if local yum cache not exists, download them and use it, done
+# if local apt cache not exists, download them and use it, done
 - import_tasks: build.yml
   when: repo_enabled|bool and not repo_exists|bool
   tags: repo_build

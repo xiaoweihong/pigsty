@@ -10,9 +10,9 @@
     - name: get node fact
       become: no
       shell: |
-        DISTRO=$(rpm -q --whatprovides redhat-release);
-        echo $(rpm -q --qf "%{VENDOR}" "${DISTRO}");
-        echo $(rpm -q --qf "%{VERSION}" "${DISTRO}" | grep -o '^[^.]\+');
+        . /etc/os-release;
+        echo ${ID};
+        echo $(echo $ID$VERSION|awk '{print $1}');
         echo $(uname -m);
         echo $(whoami)
         echo ${HOSTNAME};
@@ -27,7 +27,7 @@
       connection: local
       set_fact:
         os_vendor:      "{{ node_result.stdout_lines[0] }}"
-        os_version:     "{{ node_result.stdout_lines[1]|int }}"
+        os_version:     "{{ node_result.stdout_lines[1] }}"
         os_arch:        "{{ node_result.stdout_lines[2] }}"
         node_user:      "{{ node_result.stdout_lines[3] }}"
         node_hostname:  "{{ node_result.stdout_lines[4] }}"
@@ -57,7 +57,7 @@
         msg: >-
            nodename: {{ nodename }},
            node_cluster: {{ node_cluster }},
-           spec: c{{ node_cpu }}m{{ node_mem_gb }}, os: el{{ os_version }}.{{ os_arch }} {{ os_vendor }}
+           spec: c{{ node_cpu }}m{{ node_mem_gb }}, os: {{ os_version }}.{{ os_arch }} {{ os_vendor }}
            {% if inventory_hostname == admin_ip %}[ADMIN]{% endif %}
            {% if inventory_hostname in groups["infra"] %}[INFRA]{% endif %}
            {% if pg_cluster is defined %}[PGSQL: {{ pg_cluster }}]{% endif %}

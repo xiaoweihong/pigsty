@@ -8,6 +8,8 @@
 # Author    :   Ruohang Feng (rh@vonng.com)
 # License   :   AGPLv3
 #==============================================================#
+. /etc/os-release
+V_OS=$(echo $ID$VERSION | awk '{print $1}')
 VERSION=v2.3.1
 
 
@@ -68,12 +70,19 @@ PIGSTY_HOME="$(cd $(dirname $0) && pwd)"
 REPO_NAME=pigsty
 NGINX_HOME=/www
 REPO_DIR=${NGINX_HOME}/${REPO_NAME}
-OS_VERSION=${OS_VERSION-'7'}
-OS_VENDOR="RedHat"
+OS_VERSION=${VERSION_ID-'7'}
+OS_VENDOR=${ID}
 ARCH=$(uname -m)
 BASEURL="https://github.com/Vonng/pigsty/releases/download/${VERSION}"
 SRC_FILENAME="pigsty-${VERSION}.tgz"
-PKG_FILENAME="pigsty-pkg-${VERSION}.el${OS_VERSION}.x86_64.tgz"
+
+if [[ $ID == "ubuntu" ]];then
+    filename="$V_OS"
+elif [[ $ID == "centos" ]];then
+    filename="el${OS_VERSION}"
+fi
+
+PKG_FILENAME="pigsty-pkg-${VERSION}.${filename}.x86_64.tgz"
 DEFAULT_SRC_URL="${BASEURL}/${SRC_FILENAME}"
 DEFAULT_PKG_URL="${BASEURL}/${PKG_FILENAME}"
 
@@ -152,23 +161,37 @@ function check_machine(){
 # os release (Linux|Darwin etc..)
 #----------------------------------------------#
 function check_release(){
-    if [[ ! -f /etc/redhat-release ]]; then
-        log_error "release = unknown, /etc/redhat-release not exists"
-        log_error "pigsty works on RHEL and compatible distributions, use with caution, assume OS_VERSION=${OS_VERSION}"
-        OS_VENDOR="Unknown"
-        #exit 3
-    else
-        local full=`cat /etc/redhat-release | tr -dc '0-9.'`
-        local major=$(cat /etc/redhat-release | tr -dc '0-9.'|cut -d \. -f1)
-        local minor=$(cat /etc/redhat-release | tr -dc '0-9.'|cut -d \. -f2)
-        local asynchronous=$(cat /etc/redhat-release | tr -dc '0-9.'|cut -d \. -f3)
-        if [[ ${major} != "7" && ${major} != "8" && ${major} != "9"  ]]; then
-            log_error "release = ${full} ,  supported release: el7,el8,el9"
-            log_error "pigsty works on el 7,8,9, please use with caution!"
+    if [[ $OS_VENDOR == "ubuntu" ]];then
+        echo ubuntu
+        local full=${PRETTY_NAME}
+        
+        local major=$V_OS
+        if [[ ${major} != "ubuntu20.04.4" ]]; then
+            log_error "release = ${full} ,  supported release: $major"
+            log_error "pigsty works on $major, please use with caution!"
             #exit 4
         fi
         OS_VERSION=${major}
         log_info "release = ${full}"
+    elif [[ $OS_VENDOR == "centos" ]];then
+        if [[ ! -f /etc/redhat-release ]]; then
+            log_error "release = unknown, /etc/redhat-release not exists"
+            log_error "pigsty works on RHEL and compatible distributions, use with caution, assume OS_VERSION=${OS_VERSION}"
+            OS_VENDOR="Unknown"
+            #exit 3
+        else
+            local full=`cat /etc/redhat-release | tr -dc '0-9.'`
+            local major=$(cat /etc/redhat-release | tr -dc '0-9.'|cut -d \. -f1)
+            local minor=$(cat /etc/redhat-release | tr -dc '0-9.'|cut -d \. -f2)
+            local asynchronous=$(cat /etc/redhat-release | tr -dc '0-9.'|cut -d \. -f3)
+            if [[ ${major} != "7" && ${major} != "8" && ${major} != "9"  ]]; then
+                log_error "release = ${full} ,  supported release: el7,el8,el9"
+                log_error "pigsty works on el 7,8,9, please use with caution!"
+                #exit 4
+            fi
+            OS_VERSION=${major}
+            log_info "release = ${full}"
+        fi
     fi
     return 0
 }
@@ -467,12 +490,12 @@ function main(){
     check_machine    # machine       = x86_64
     check_release    # release       = CentOS 7|8|9
     check_sudo       # current_user  = NOPASSWD sudo
-    check_pkg        # check offline installation package exists (INTERACTIVE: ask for download confirmation)
+    # check_pkg        # check offline installation package exists (INTERACTIVE: ask for download confirmation)
     check_repo       # create repo from pkg.tgz if exists
-    check_repo_file  # create local file repo file if repo exists
-    check_utils      # check ansible sshpass and other utils installed
-    log_info "boostrap pigsty complete"
-    log_hint "proceed with ./configure\n"
+    # check_repo_file  # create local file repo file if repo exists
+    # check_utils      # check ansible sshpass and other utils installed
+    # log_info "boostrap pigsty complete"
+    # log_hint "proceed with ./configure\n"
 }
 
 main $@

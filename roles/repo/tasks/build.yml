@@ -6,42 +6,43 @@
   tags: [ repo_upstream, repo_remove ]
   when: repo_remove|bool
   shell: |
-      mkdir -p /etc/yum.repos.d/backup/
-      mv -f /etc/yum.repos.d/*.repo /etc/yum.repos.d/backup/ || /bin/true
+      mkdir -p /etc/apt/sources.list.d/backup/
+      mv -f /etc/apt/sources.list /etc/apt/sources.list.d/backup/
+      mv -f /etc/apt/sources.list.d/* /etc/apt/sources.list.d/backup/
+      rm -f /etc/apt/sources.list.d/* || /bin/true
 
 #--------------------------------------------------------------#
 # 3.2  Add required upstream repo files               [repo_add]
 #--------------------------------------------------------------#
 - name: add pigsty upstream repo file
-  tags: [ repo_upstream , repo_add ]
+  tags: [ repo_upstream , repo_add,test ]
   copy:
-    dest: /etc/yum.repos.d/{{ item.name }}.repo
+    dest: /etc/apt/sources.list.d/{{ item.name }}.list
     content: |
-      [{{ item.name }}]
-      name = {{ item.description }} $releasever - $basearch
+      {% for i in item.releases %}
       {% if region in item.baseurl and item.baseurl[region] != '' %}
-      baseurl = {{ item.baseurl[region] | replace('$releasever', os_version|string )  }}
+      deb [trusted=yes] {{ item.baseurl[region] }} {{i}} {{item.directory}} {% if item.name == 'base' %} restricted universe multiverse 
       {% else %}
-      baseurl = {{ item.baseurl.default | replace('$releasever', os_version|string )  }}
-      {% endif %}
-      gpgcheck = 0
-      enabled = 1
-      {% if os_version|int >= 8 %}
-      module_hotfixes=1
-      {% endif %}
-  when: os_version|int in item.releases and item.module in repo_modules.split(',')
+      {% endif%}
+      {% else %}
+      deb [trusted=yes] {{ item.baseurl.default }} {{i}} {% if item.name== 'nginx' %} nginx {%else%} main {% endif %} {% if item.name == 'base' %} restricted universe multiverse 
+      {%else%} 
+      {% endif%}
+      {% endif%}
+      {% endfor %}
+  # when: os_version|int in item.releases and item.module in repo_modules.split(',')
   with_items: "{{ repo_upstream }}"
 
-#--------------------------------------------------------------#
-# 3.3  Download url packages                      [repo_url_pkg]
-#--------------------------------------------------------------#
-# download packages directly via url (replace ${releasever} to 7|8|9)
-- name: download repo url packages
-  tags: repo_url_pkg
-  ignore_errors: true
-  environment: "{{ proxy_env }}"
-  get_url: dest={{ repo_home }}/{{ repo_name }}/ url={{ item | replace('${releasever}', os_version|string) | replace('${arch}', os_arch|string ) }}
-  with_items: "{{ repo_url_packages }}"
+# #--------------------------------------------------------------#
+# # 3.3  Download url packages                      [repo_url_pkg]
+# #--------------------------------------------------------------#
+# # download packages directly via url (replace ${releasever} to 7|8|9)
+# - name: download repo url packages
+#   tags: repo_url_pkg
+#   ignore_errors: true
+#   environment: "{{ proxy_env }}"
+#   get_url: dest={{ repo_home }}/{{ repo_name }}/ url={{ item | replace('${releasever}', os_version|string) | replace('${arch}', os_arch|string ) }}
+#   with_items: "{{ repo_url_packages }}"
 
 #--------------------------------------------------------------#
 # 3.4 Make repo cache                               [repo_cache]
@@ -51,11 +52,8 @@
   tags: repo_cache
   environment: "{{ proxy_env|default({}) }}"
   shell: |
-    yum clean all;
-    yum makecache;
-    {% if os_version|int >= 8 %}
-    dnf module disable -y php nginx postgresql;
-    {% endif %}
+    apt-get clean;
+    apt-get update >/tmp/a.log 2>&1
     /bin/true
 
 #--------------------------------------------------------------#
@@ -64,7 +62,7 @@
 - name: install repo boot packages
   tags: repo_boot_pkg
   environment: "{{ proxy_env|default({}) }}"
-  yum: name="createrepo_c,yum-utils{% if os_version|int >= 8 %},modulemd-tools{% endif %}" state=present
+  apt: name="dpkg-dev" state=present
 
 #--------------------------------------------------------------#
 # 3.6 Download rpm Packages                           [repo_pkg]
@@ -74,30 +72,20 @@
   environment: "{{ proxy_env }}"
   shell:
     cmd: |
-      {% if os_version|int >= 8 %}
-      repotrack --arch x86_64,noarch {% if '*' in item %}{% for arg in item.split() %}'{{ arg }}' {% endfor %}{% else %}{{ item }}{% endif %};
-      {% else %}
-      repotrack {% if '*' in item %}{% for arg in item.split() %}'{{ arg }}' {% endfor %}{% else %}{{ item }}{% endif %}
-      {% endif %}
+      apt-get download $(apt-cache depends --recurse --no-recommends --no-suggests --no-conflicts --no-breaks --no-replaces --no-enhances {{item}}| grep "^\w" | sort -u)
     chdir: "{{ repo_home }}/{{ repo_name }}"
   with_items: "{{ repo_packages }}"
 
 #--------------------------------------------------------------#
 # 3.7 Create repo                                  [repo_create]
 #--------------------------------------------------------------#
-# create local yum repo
+# create local apt repo
 - name: create local repo
   tags: repo_create
   shell:
     cmd: |
       #!/bin/bash
-      rm -f *.i686.rpm   # remove i686 packages
-      createrepo_c {{ repo_home }}/{{ repo_name }}
-      {% if os_version|int >= 8 %}
-      repo2module -s stable . modules.yaml
-      modifyrepo_c --mdtype=modules modules.yaml repodata/
-      {% endif %}
-      md5sum *.rpm > {{ repo_home }}/{{ repo_name }}/repo_complete || /bin/true
+      dpkg-scanpackages . /dev/null|gzip -9c > Packages.gz
     chdir: "{{ repo_home }}/{{ repo_name }}"
 
 #--------------------------------------------------------------#
@@ -106,21 +94,12 @@
 - name: use built local repo
   tags: repo_use
   shell: |
-    mkdir -p /etc/yum.repos.d/backup/
-    mv -f /etc/yum.repos.d/*.repo /etc/yum.repos.d/backup/ || /bin/true
-    cat > /etc/yum.repos.d/{{ repo_name }}-local.repo <<-'EOF'
-    [{{ repo_name }}-local]
-    name={{ repo_name }}-local $releasever - $basearch
-    baseurl=file://{{ repo_home }}/{{ repo_name }}/
-    enabled=1
-    gpgcheck=0
-    {% if os_version|int >= 8 %}
-    module_hotfixes=1
-    {% endif %}
+    rm -f /etc/apt/sources.list
+    rm -f /etc/apt/sources.list.d/* || /bin/true
+    cat > /etc/apt/sources.list <<-'EOF'
+    deb [trusted=yes] file:///{{ repo_home }}/{{ repo_name }}/ ./
     EOF
-    yum clean all;
-    yum makecache;
-    yum install -y wget sshpass createrepo_c nginx;
-    yum install -t yum-utils || /bin/true
+    apt-get update;
+    apt-get -y install wget sshpass nginx;
     /bin/true;
 ...
